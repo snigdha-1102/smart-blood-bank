@@ -1,9 +1,6 @@
-w tiexport default {
+export default {
   plugins: {
     '@tailwindcss/postcss': {},
-    autoprefixer: {},
-ho
+    autoprefixer: {}
+  }
 };
-
-
-

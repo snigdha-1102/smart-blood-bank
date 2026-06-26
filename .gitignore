@@ -18,3 +18,4 @@ logs/
 # IDE files
 .idea/
 *.sublime-workspace
+frontend/node_modules
