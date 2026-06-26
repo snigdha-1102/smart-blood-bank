@@ -65,18 +65,29 @@ const register = asyncHandler(async (req, res) => {
 
   const passwordHash = await bcrypt.hash(password, Number(process.env.BCRYPT_SALT_ROUNDS || 10));
 
+  const shouldAutoVerify = !process.env.EMAIL_HOST || process.env.EMAIL_HOST === 'replace_me' || process.env.NODE_ENV === 'development';
+
   const user = await User.create({
     name: name || undefined,
     email: email.toLowerCase().trim(),
     passwordHash,
     role: role && ['admin', 'donor', 'hospital'].includes(role) ? role : 'donor',
+    isEmailVerified: shouldAutoVerify ? true : false,
   });
 
-  await sendEmailVerification(user);
+  if (!shouldAutoVerify) {
+    try {
+      await sendEmailVerification(user);
+    } catch (err) {
+      console.error('Failed to send verification email, but user was created:', err);
+    }
+  }
 
   return res.status(201).json({
     success: true,
-    message: 'Registration successful. Please verify your email.',
+    message: shouldAutoVerify 
+      ? 'Registration successful. Account automatically verified.' 
+      : 'Registration successful. Please verify your email.',
     data: { userId: user._id },
     statusCode: 201,
   });
