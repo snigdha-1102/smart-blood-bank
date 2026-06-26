@@ -1,4 +1,4 @@
-# Snigx Blood Bank Management System (MERN)
+#  Blood Bank Management System (MERN)
 
 ## Tech Stack
 - Frontend: React (Vite), Tailwind CSS, React Router, Axios, React Hook Form, Context API, Recharts, React Icons, Framer Motion, React Toastify
