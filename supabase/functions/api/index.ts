@@ -485,6 +485,121 @@ Deno.serve(async (req: Request) => {
       return json({ success: res.ok, message: res.ok ? "Hospital approved successfully" : "Approval failed" });
     }
 
+    // ─── BLOOD AVAILABILITY SEARCH (hospital authenticated) ───
+    if (path === "/blood/availability" && req.method === "GET") {
+      const url = new URL(req.url);
+      const bloodGroup = url.searchParams.get("blood_group");
+      const city = url.searchParams.get("city");
+      const state = url.searchParams.get("state");
+
+      let filter = "select=bloodbank_id,blood_group,units_available,profiles!inner(name,email)";
+      const conditions: string[] = [];
+      if (bloodGroup) conditions.push("blood_group=eq." + bloodGroup);
+      if (city) conditions.push("city=eq." + city);
+      // Join from blood_inventory → profile
+      let inventoryFilter = "units_available=gt.0";
+      if (bloodGroup) inventoryFilter += "&blood_group=eq." + bloodGroup;
+
+      const invRes = await dbSelect("blood_inventory", inventoryFilter + "&select=bloodbank_id,blood_group,units_available");
+      const profilesRes = await dbSelect("profiles", "role=eq.bloodbank&select=id,name,email,city,state");
+
+      if (!invRes.ok || !profilesRes.ok) {
+        return json({ success: false, message: "Failed to fetch availability" }, 500);
+      }
+
+      const profiles: Record<string, { name: string; email: string; city?: string; state?: string }> = {};
+      if (Array.isArray(profilesRes.data)) {
+        for (const p of profilesRes.data as { id: string; name: string; email: string; city?: string; state?: string }[]) {
+          profiles[p.id] = p;
+        }
+      }
+
+      let results: unknown[] = [];
+      if (Array.isArray(invRes.data)) {
+        results = (invRes.data as { bloodbank_id: string; blood_group: string; units_available: number }[])
+          .filter((row) => profiles[row.bloodbank_id])
+          .filter((row) => {
+            const p = profiles[row.bloodbank_id];
+            if (city && p.city?.toLowerCase() !== city.toLowerCase()) return false;
+            if (state && p.state?.toLowerCase() !== state.toLowerCase()) return false;
+            return true;
+          })
+          .map((row) => {
+            const p = profiles[row.bloodbank_id];
+            return {
+              bloodbank_id: row.bloodbank_id,
+              bloodbank_name: p.name,
+              blood_group: row.blood_group,
+              units: row.units_available,
+              city: p.city,
+              state: p.state,
+            };
+          });
+      }
+      return json({ success: true, data: results });
+    }
+
+    // ─── HOSPITAL'S OWN BLOOD REQUESTS ───
+    if (path === "/blood-requests/my" && req.method === "GET" && userRole === "hospital") {
+      const res = await dbSelect("blood_requests", "hospital_id=eq." + userId + "&order=created_at.desc");
+      return json({ success: true, data: res.data ?? [] });
+    }
+
+    // ─── ADMIN: LIST ALL BLOOD BANKS ───
+    if (path === "/admin/bloodbanks" && req.method === "GET" && userRole === "admin") {
+      const res = await dbSelect("profiles", "role=eq.bloodbank&select=id,name,email,city,state,is_email_verified,created_at&order=created_at.desc");
+      return json({ success: true, data: res.data ?? [] });
+    }
+
+    // ─── ADMIN: LIST ALL HOSPITALS ───
+    if (path === "/admin/hospitals" && req.method === "GET" && userRole === "admin") {
+      const profilesRes = await dbSelect("profiles", "role=eq.hospital&select=id,name,email,city,state,created_at&order=created_at.desc");
+      const hospitalsRes = await dbSelect("hospitals", "select=id,doctor_name,registration_number,is_approved");
+
+      const hospitalDetails: Record<string, { doctor_name?: string; is_approved?: boolean }> = {};
+      if (Array.isArray(hospitalsRes.data)) {
+        for (const h of hospitalsRes.data as { id: string; doctor_name?: string; is_approved?: boolean }[]) {
+          hospitalDetails[h.id] = h;
+        }
+      }
+
+      const merged = Array.isArray(profilesRes.data)
+        ? (profilesRes.data as { id: string; name: string; email: string; city?: string; state?: string; created_at: string }[]).map((p) => ({
+            ...p,
+            ...(hospitalDetails[p.id] || {}),
+          }))
+        : [];
+
+      return json({ success: true, data: merged });
+    }
+
+    // ─── ADMIN: STATS ───
+    if (path === "/admin/stats" && req.method === "GET" && userRole === "admin") {
+      const [bbRes, hospRes, reqRes, donorsRes] = await Promise.all([
+        dbSelect("profiles", "role=eq.bloodbank&select=id"),
+        dbSelect("profiles", "role=eq.hospital&select=id"),
+        dbSelect("blood_requests", "select=id,status"),
+        dbSelect("donors", "select=id"),
+      ]);
+
+      const totalBB = Array.isArray(bbRes.data) ? bbRes.data.length : 0;
+      const totalHosp = Array.isArray(hospRes.data) ? hospRes.data.length : 0;
+      const allReqs = Array.isArray(reqRes.data) ? reqRes.data as { id: string; status: string }[] : [];
+      const totalDonors = Array.isArray(donorsRes.data) ? donorsRes.data.length : 0;
+
+      return json({
+        success: true,
+        data: {
+          total_bloodbanks: totalBB,
+          total_hospitals: totalHosp,
+          total_requests: allReqs.length,
+          pending_requests: allReqs.filter((r) => r.status === "pending").length,
+          fulfilled_requests: allReqs.filter((r) => r.status === "fulfilled" || r.status === "completed" || r.status === "partially_fulfilled").length,
+          total_donors: totalDonors,
+        },
+      });
+    }
+
     return json({
       success: false,
       message: "Route not found: " + path,

@@ -3,18 +3,22 @@ import { useAuth } from '../context/AuthContext';
 import Login from '../pages/Login';
 import Register from '../pages/Register';
 import VerifyEmail from '../pages/VerifyEmail';
+import LandingPage from '../pages/LandingPage';
 import BloodbankDashboard from '../pages/BloodbankDashboard';
 import HospitalDashboard from '../pages/HospitalDashboard';
 import AdminDashboard from '../pages/AdminDashboard';
+import BloodAvailabilitySearch from '../pages/BloodAvailabilitySearch';
+import BloodRequestStatus from '../pages/BloodRequestStatus';
+import DonorAvailabilityList from '../pages/DonorAvailabilityList';
 
-// Guard mapping matching user roles to proper dashboards
-function AuthenticatedDashboard() {
+// Guard that redirects unauthenticated users to login
+function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, accessToken, loading } = useAuth();
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
-        <div className="w-8 h-8 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
+        <div className="w-10 h-10 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -23,22 +27,58 @@ function AuthenticatedDashboard() {
     return <Navigate to="/login" replace />;
   }
 
-  if (user.role === 'admin') return <AdminDashboard />;
-  if (user.role === 'hospital') return <HospitalDashboard />;
+  return <>{children}</>;
+}
+
+// Redirects logged-in users away from public pages
+function PublicRoute({ children }: { children: React.ReactNode }) {
+  const { user, accessToken, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <div className="w-10 h-10 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (accessToken && user) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+// Role-based dashboard selector
+function Dashboard() {
+  const { user } = useAuth();
+  if (user?.role === 'admin') return <AdminDashboard />;
+  if (user?.role === 'hospital') return <HospitalDashboard />;
   return <BloodbankDashboard />;
 }
 
 export default function Routes() {
   return (
     <RouterRoutes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
+      {/* Public routes */}
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+      <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
       <Route path="/verify-email" element={<VerifyEmail />} />
-      <Route path="/" element={<AuthenticatedDashboard />} />
+
+      {/* Protected routes */}
+      <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+
+      {/* Blood Bank routes */}
+      <Route path="/donors" element={<PrivateRoute><DonorAvailabilityList /></PrivateRoute>} />
+      <Route path="/requests" element={<PrivateRoute><BloodbankDashboard /></PrivateRoute>} />
+
+      {/* Hospital routes */}
+      <Route path="/requests/status" element={<PrivateRoute><BloodRequestStatus /></PrivateRoute>} />
+      <Route path="/blood/availability" element={<PrivateRoute><BloodAvailabilitySearch /></PrivateRoute>} />
+
+      {/* Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </RouterRoutes>
   );
 }
-
-
-
